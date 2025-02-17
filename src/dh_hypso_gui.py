@@ -2,7 +2,7 @@
 # as well as the corresponding integrated uncertainty (Hugonnet framework).
 # It is cross-platform and handles xdem exceptions nicely (error textboxes).
 # Author: Enrico Mattea.
-# Last change: 2025/02/12.
+# Last change: 2025/02/17.
 
 # Algorithm:
 # Load the dh, ref DEM, glaciers of interest, and unstable terrain
@@ -40,13 +40,13 @@ def update_progress_label(progress_label, text):
 
 
 # We work with a dh of class dDEM, on which we can run the (hypsometric or IDW) interpolation.
-def dh_interpolate(ddh_r, dem_ref_r, poly_v, interp_type):
-    poly_r = ~poly_v.create_mask(raster = ddh_r)
-    ddh_proc_r = ddh_r.copy()
-    ddh_proc_r.set_mask(poly_r)
-    ddh_proc_interp_arr = ddh_proc_r.interpolate(method=interp_type, reference_elevation=dem_ref_r, mask=poly_v)
-    ddh_proc_interp_r = ddh_proc_r.copy(new_array = ddh_proc_interp_arr)
-    return(ddh_proc_interp_r)
+def dh_interpolate(dh_r, dem_ref_r, poly_v, interp_type):
+    poly_r = ~poly_v.create_mask(raster = dh_r)
+    dh_proc_r = dh_r.copy()
+    dh_proc_r.set_mask(poly_r)
+    dh_proc_interp_arr = dh_proc_r.interpolate(method=interp_type, reference_elevation=dem_ref_r, mask=poly_v)
+    dh_proc_interp_r = dh_proc_r.copy(new_array = dh_proc_interp_arr)
+    return(dh_proc_interp_r)
 
 
 
@@ -227,21 +227,20 @@ def compute_poly_uncertainty(gl_poly_cur_v, dh_r, params_vgm, scale_fac_std, dh_
 
 
 
-# TODO
-# Replace the two functions below:
-# one function computing simply averaged mean change and mean hypso change (of one polygon, called in a loop)
-# one function doing the heteroscedasticity and variogram modeling (output: params_vgm, scale_fac_std)
-# one function computing integrated uncertainty of dh mean (of one polygon, called in a loop)
-# one larger function calling the previous three incl. loop, updating the progress bar and handling errors, starting with root.withdraw()
-
-
-
-
 def run_processing(file_paths, interpolation_method, progress_bar_window, progress_bar, progress_bar_label, root):
     """
-    Filter dh outliers in elevation bands, iterating over all the polygons of the given polygon file.
-    file_paths has the paths to the dh grid, the reference DEM and he glacier polygons.
+    Gap-fill the DEM with the chosen method,
+    compute mean dh over each polygon,
+    run Hugonnet2022 uncertainty analysis,
+    compute per-polygon integrated uncertainty.
+    We write:
+    (1) the gap-filled dh grid,
+    (2) the plot with variogram and patches method,
+    (3) a vector file with two new columns (mean dh and mean dh err)
     """
+
+    # Hide main window during processing, to avoid potential mess.
+    root.withdraw()
 
     # Begin with some progress! We update the progress bar on the main thread.
     # Progress bar goes to 10 %.
