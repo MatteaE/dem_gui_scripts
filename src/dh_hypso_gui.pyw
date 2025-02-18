@@ -38,6 +38,12 @@ def dh_interpolate(dh_r, dem_ref_r, poly_v, interp_type):
     poly_r = ~poly_v.create_mask(raster = dh_r)
     dh_proc_r = dh_r.copy()
     dh_proc_r.set_mask(poly_r)
+
+    # If the Numpy array is fully masked, it means we have no valid data within
+    # our polygon, thus we have no interpolation to do and we return an empty grid.
+    if (dh_r.data[~poly_r.data.data]).mask.all():
+        return(dh_proc_r)
+
     dh_proc_interp_arr = dh_proc_r.interpolate(method=interp_type, reference_elevation=dem_ref_r, mask=poly_v)
     dh_proc_interp_r = dh_proc_r.copy(new_array = dh_proc_interp_arr)
     return(dh_proc_interp_r)
