@@ -2,13 +2,7 @@
 # as well as the corresponding integrated uncertainty (Hugonnet framework).
 # It is cross-platform and handles xdem exceptions nicely (error textboxes).
 # Author: Enrico Mattea.
-# Last change: 2025/02/17.
-
-# Algorithm:
-# Load the dh, ref DEM, glaciers of interest, and unstable terrain
-# For each polygon, compute the hypsometric mean dh
-# Run uncertainty workflow
-# Add new columns to the geodataframe of the glaciers of interest: simple average dh, hypsometric average dh, error of average dh
+# Last change: 2025/02/18.
 
 
 
@@ -17,7 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
 
-# Needed by more than one function
+# Needed by more than one function, so we import it here
 import numpy as np
 
 def handle_error(exception_message, progress_bar_window, root):
@@ -51,17 +45,19 @@ def dh_interpolate(dh_r, dem_ref_r, poly_v, interp_type):
 
 
 
-
 # Run the full Hugonnet2022 uncertainty workflow (heteroscedasticity and variogram modeling).
 # Returns: error standardization factor, parameters of the fitted variogram, dh_err map,
 # all ready to apply to the uncertainty of single polygons.
 # This function advances the progress bar by 26 % .
-def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, progress_bar, progress_bar_label):
+def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, file_paths, progress_bar, progress_bar_label):
 
     import xdem
 
-    # To plot integrated variogram.
+    # To plot integrated variogram
     import matplotlib.pyplot as plt
+
+    # To save the plot
+    from os.path import dirname as path_dirname, join as path_join
 
     progress_bar.after(0, update_progress_label, progress_bar_label, "Preparing input to compute uncertainty...")
     unstable_mask_r = unstable_polys_v.create_mask(dh_r)
@@ -145,7 +141,7 @@ def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, progress_bar, progr
 
 
     # Integrate variogram over various surface areas
-    areas = [4000 * 2 ** (i) for i in range(2,13,1)]
+    areas = [4000 * 2 ** (i) for i in range(3,15,1)]
     stderr_vgm_list = []
     for area in areas:
 
@@ -186,7 +182,7 @@ def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, progress_bar, progr
     plt.xscale("log")
     plt.yscale("log")
     plt.legend(loc="lower left")
-    plt.savefig("std_uncertainty_by_area.png")
+    plt.savefig(path_join(path_dirname(file_paths[0]), "std_uncertainty_by_area.png"))
     plt.close()
 
     progress_bar.after(0, update_progress_bar, progress_bar, 2)
@@ -201,6 +197,7 @@ def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, progress_bar, progr
 def compute_poly_uncertainty(gl_poly_cur_v, dh_r, params_vgm, scale_fac_std, dh_err):
 
     import xdem
+    import numpy as np
 
     gl_poly_mask = gl_poly_cur_v.create_mask(dh_r)
 
@@ -221,6 +218,16 @@ def compute_poly_uncertainty(gl_poly_cur_v, dh_r, params_vgm, scale_fac_std, dh_
         # maximum curvature. This yields the uncertainty into the mean elevation change for the selected polygon.
         fac_poly_dh_err = scale_fac_std * np.nanmean(dh_err[gl_poly_mask.data])
         poly_dh_err = fac_poly_dh_err * poly_z_err_vgm
+
+        # Disabled here: rescale poly dh err considering factor of 5 for gaps.
+        # This is the formula of Dussaillant et al. (2018) for uncertainty of gaps.
+        # We don't use it anymore since it does not account for heteroscedasticity:
+        # instead, we directly multiply by 5 the dh_err map on gaps.
+        # We have verified that the result is anyway very similar.
+        # poly_cells_n = np.sum(gl_poly_mask.data.data)
+        # poly_valid_cells_n = np.sum(gl_poly_mask.data.data & ~dh_r.get_mask())
+        # poly_valid_fraction = poly_valid_cells_n / poly_cells_n
+        # poly_dh_err = poly_dh_err * (5 * (1 - poly_valid_fraction) + poly_valid_fraction)
 
         return(poly_dh_err)
 
@@ -368,10 +375,18 @@ def run_processing(file_paths, interpolation_method, progress_bar_window, progre
     # parameters to estimate polygon-wise uncertainty.
     # Progress bar goes to 90 %.
     try:
-        scale_fac_std, params_vgm, dh_err = analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, progress_bar, progress_bar_label)
+        scale_fac_std, params_vgm, dh_err = analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, file_paths, progress_bar, progress_bar_label)
+
+        # Estimate the error over gaps: factor of 5.
+        # We multiply by 5 each cell where the input
+        # dh map has no data (Berthier et al., 2014).
+        dh_err.data[dh_r.get_mask()] = 5 * dh_err.data[dh_r.get_mask()]
+
+
     except Exception as error:
         exceptionlast = format_exc().splitlines()[-1]
         handle_error(f"There was an error with the statistical calculation of uncertainty:\n\n{exceptionlast}\n\nUncertainty was NOT calculated (but the mean elevation change was). Please correct the error and run the program again.\n\nClick OK to exit.", progress_bar_window, root)
+
 
 
     # Compute uncertainty for each polygon.
