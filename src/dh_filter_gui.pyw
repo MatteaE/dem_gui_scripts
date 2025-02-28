@@ -34,7 +34,7 @@ def update_progress_label(progress_label, text):
     progress_label.config(text=text)
 
 
-def filter_outliers_single(dh_r, dem_ref_r, poly_v):
+def filter_outliers_single(dh_r, dem_ref_r, poly_v, sd_coeff):
 	"""
 	Compute outlier-filtering mask for a raster elevation change map,
 	based on standard deviation in elevation bands (derived from a reference DEM),
@@ -109,7 +109,7 @@ def filter_outliers_single(dh_r, dem_ref_r, poly_v):
 			# dh_proc_r is anyway masked, so this is just a mask over
 			# the glacier polygon - should be fast.
 			# This is just a boolean numpy array.
-			outlier_mask_arr = (np.abs(dh_proc_r - eleband_dh_median) > 3 * eleband_dh_sd).get_nanarray()
+			outlier_mask_arr = (np.abs(dh_proc_r - eleband_dh_median) > sd_coeff * eleband_dh_sd).get_nanarray()
 			# Combine outlier_mask_arr with eleband_mask_arr, to find out what we should filter out in the current eleband.
 			eleband_outlier_mask_arr = eleband_mask_arr & outlier_mask_arr
 
@@ -126,7 +126,7 @@ def filter_outliers_single(dh_r, dem_ref_r, poly_v):
 	return(poly_filter_mask_arr)
 
 
-def run_filtering(file_paths, progress_bar_window, progress_bar, progress_bar_label, root):
+def run_filtering(file_paths, sd_coeff, progress_bar_window, progress_bar, progress_bar_label, root):
     """
     Filter dh outliers in elevation bands, iterating over all the polygons of the given polygon file.
     file_paths has the paths to the dh grid, the reference DEM and he glacier polygons.
@@ -208,7 +208,7 @@ def run_filtering(file_paths, progress_bar_window, progress_bar, progress_bar_la
             handle_error(f"There was an error selecting the polygon number {poly_id}:\n\n{exceptionlast}\n\nNo output was generated, please correct the error and run the program again.\n\nClick OK to exit.", progress_bar_window, root)
 
         try:
-            poly_filter_mask_arr = filter_outliers_single(dh_r, dem_ref_r, poly_cur_v)
+            poly_filter_mask_arr = filter_outliers_single(dh_r, dem_ref_r, poly_cur_v, sd_coeff)
         except Exception as error:
             exceptionlast = format_exc().splitlines()[-1]
             handle_error(f"There was an error filtering the dh map within polygon number {poly_id}:\n\n{exceptionlast}\n\nNo output was generated, please correct the error (check the input files!) and run the program again.\n\nClick OK to exit.", progress_bar_window, root)
@@ -223,7 +223,7 @@ def run_filtering(file_paths, progress_bar_window, progress_bar, progress_bar_la
 
     progress_bar.after(0, update_progress_label, progress_bar_label, "Writing output...")
     out_dirpath=path_dirname(file_paths[0])
-    out_fn=sub("(\.[\w]{1,})$", r"_filter\1", path_basename(file_paths[0])) # Add _filter just before the file extension.
+    out_fn=sub("(\.[\w]{1,})$", r"_filter_{}\1".format(sd_coeff), path_basename(file_paths[0])) # Add _filter just before the file extension.
     out_path=path_join(path_abspath(out_dirpath), out_fn)
 
 
@@ -245,13 +245,14 @@ def run_filtering(file_paths, progress_bar_window, progress_bar, progress_bar_la
 
 
 
-def start_process(file_paths, progress_bar_window, progress_bar, progress_bar_label, root):
+def start_process(file_paths, sd_coeff, progress_bar_window, progress_bar, progress_bar_label, root):
     """Start the long-running function in a separate thread"""
     progress_bar_window.deiconify()  # Show the progress window
     progress_bar_window.attributes("-topmost", 1) # Bring the progress window to top
 
     # Run the long-running function in a separate thread to keep UI responsive
-    threading.Thread(target=run_filtering, args=(file_paths, progress_bar_window, progress_bar, progress_bar_label, root), daemon=True).start()
+    # sd_coeff.get() retrieves the value from the radio buttons.
+    threading.Thread(target=run_filtering, args=(file_paths, sd_coeff.get(), progress_bar_window, progress_bar, progress_bar_label, root), daemon=True).start()
 
 
 def file_selector(entry, file_paths, button, idx):
@@ -290,14 +291,19 @@ def create_main_window():
     root.grid_rowconfigure(1, weight=0)  # For the process button
     root.grid_columnconfigure(0, weight=0)  # For labels
     root.grid_columnconfigure(1, weight=1)  # For entry fields
-    root.grid_columnconfigure(2, weight=0)  # For buttons
+    root.grid_columnconfigure(2, weight=1)  # For entry fields.
+    root.grid_columnconfigure(3, weight=20) # For entry fields. weight=20 to have the three radio buttons on the left.
+    root.grid_columnconfigure(4, weight=0)  # For buttons
+    # root.grid_columnconfigure(0, weight=0)  # For labels
+    # root.grid_columnconfigure(1, weight=1)  # For entry fields
+    # root.grid_columnconfigure(2, weight=0)  # For buttons
 
     # Title and text above file selectors
     title_label = tk.Label(root, text="Hypsometric filtering of a dh grid", font=("Helvetica", 16))
-    title_label.grid(row=0, column=0, columnspan=3, pady=5)
+    title_label.grid(row=0, column=0, columnspan=5, pady=5)
 
     info_label = tk.Label(root, text="Please select the grid of elevation change that should be filtered, a reference DEM (no gaps!), and a shapefile with the glacier polygons that should be filtered, then click on \"Start filtering\".", anchor="w")
-    info_label.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="w")
+    info_label.grid(row=1, column=0, columnspan=5, padx=10, pady=5, sticky="w")
 
     # File selectors
     file_selector_labels = ["Elevation change grid", "Reference DEM", "Shapefile of glacier polygons"]
@@ -307,19 +313,35 @@ def create_main_window():
         lbl.grid(row=idx+2, column=0, padx=10, pady=5, sticky="w")
 
         entry = tk.Entry(root, width=100)
-        entry.grid(row=idx+2, column=1, padx=5, pady=5, sticky="ew")
+        entry.grid(row=idx+2, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
         entries.append(entry)
 
         # Bind the entry change to the callback function
         entry.bind("<KeyRelease>", lambda e, idx=idx: on_entry_change(entries[idx], file_paths, process_button, idx))
 
         btn = tk.Button(root, text="Browse", command=lambda idx=idx: file_selector(entries[idx], file_paths, process_button, idx))
-        btn.grid(row=idx+2, column=2, padx=5, pady=5)
+        btn.grid(row=idx+2, column=4, padx=5, pady=5)
+
+
+    # Radio buttons to select SD coefficient for filtering (1, 2, 3)
+    # Create a Tkinter variable to hold the selected radio button value
+    sd_coeff = tk.IntVar(value=3)  # Default to 3
+
+    # Create buttons
+    radios_lbl = tk.Label(root, text="Select SD coefficient", anchor="w")
+    radios_lbl.grid(row=5, column=0, padx=10, pady=5, sticky="w")
+    radio1 = tk.Radiobutton(root, text="1", variable=sd_coeff, value=1)
+    radio1.grid(row=5, column=1, pady=10, sticky="w")
+    radio2 = tk.Radiobutton(root, text="2", variable=sd_coeff, value=2)
+    radio2.grid(row=5, column=2, pady=10, sticky="w")
+    radio3 = tk.Radiobutton(root, text="3", variable=sd_coeff, value=3)
+    radio3.grid(row=5, column=3, columnspan=2, pady=10, sticky="w")
+
 
     # Button to trigger the process
     process_button = tk.Button(root, text="Start filtering", state=tk.DISABLED,
-                                command=lambda: start_process(file_paths, progress_bar_window, progress_bar, progress_bar_label, root))
-    process_button.grid(row=5, column=0, columnspan=3, pady=10)
+                                command=lambda: start_process(file_paths, sd_coeff, progress_bar_window, progress_bar, progress_bar_label, root))
+    process_button.grid(row=6, column=0, columnspan=5, pady=10)
 
     # Progress dialog window (hidden initially)
     progress_bar_window = tk.Toplevel(root)

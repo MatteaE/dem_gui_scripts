@@ -203,7 +203,6 @@ def analyze_uncertainties(dh_r, dem_ref_r, unstable_polys_v, file_paths, progres
 def compute_poly_uncertainty(gl_poly_cur_v, dh_r, params_vgm, scale_fac_std, dh_err):
 
     import xdem
-    import numpy as np
 
     gl_poly_mask = gl_poly_cur_v.create_mask(dh_r)
 
@@ -320,6 +319,7 @@ def run_processing(file_paths, interpolation_method, progress_bar_window, progre
     # Progress bar goes to 50 %.
     step_cur = 27 / max(1, gl_poly_n) # We use max() just to avoid throwing an extra error in case gl_poly_n is 0 (since we have 2 threads)
     dh_gapfilled_r = dh_r.copy()     # This will be the gap-filled copy of the dh map.
+    gl_polys_v.ds["cells_n"] = np.nan # Add column to put the number of cells of aggregation
     gl_polys_v.ds["dh_mean_m"] = np.nan # Add column to put the mean dh values
     for gl_poly_id in range(gl_poly_n):
         progress_bar.after(0, update_progress_label, progress_bar_label, f"Calculating mean change: {gl_poly_id+1} / {gl_poly_n}...")
@@ -336,6 +336,7 @@ def run_processing(file_paths, interpolation_method, progress_bar_window, progre
             # Compute and store mean dh change.
             dh_mean = np.nanmean(dh_values_arr)
 
+            gl_polys_v.ds.loc[gl_poly_id, "cells_n"] = np.sum(gl_poly_cur_v.create_mask(raster = dh_r).data)
             gl_polys_v.ds.loc[gl_poly_id, "dh_mean_m"] = dh_mean
 
             # Paste gap-filled data into the dh map, which we will later save.
