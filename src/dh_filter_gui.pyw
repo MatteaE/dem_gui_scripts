@@ -104,6 +104,12 @@ def filter_outliers_single(dh_r, dem_ref_r, poly_v, sd_coeff):
 			eleband_dh_median = np.ma.median(eleband_dh_values)
 			eleband_dh_sd = np.ma.std(eleband_dh_values, ddof = 1) # ddof = 1 for (N-1) denominator, consistent with R.
 
+			# If the entire elevation band has no dh data, the median and sd are masked and are not suitable for calculation of the outlier mask.
+			# In that case, we set them to 0 (there is nothing to filter here anyway).
+			if np.ma.is_masked(eleband_dh_median):
+				eleband_dh_median = 0
+				eleband_dh_sd = 0
+
 			# Identify outliers (values outside 3 standard deviations of the median).
 			# We do this on the full grid, to preserve cell indexing.
 			# dh_proc_r is anyway masked, so this is just a mask over
